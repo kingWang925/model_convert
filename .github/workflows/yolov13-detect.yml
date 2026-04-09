@@ -1,5 +1,3 @@
-name: Convert Yolov13 Detect Models
-
 # 触发工作流的事件
 on:
   workflow_dispatch:
@@ -27,15 +25,24 @@ jobs:
         fetch-depth: 1000
         fetch-tags: true
 
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y cmake git libgl-dev
+        # Fix pip cache permissions if needed
+        mkdir -p /github/home/.cache/pip
+        chmod -R 777 /github/home/.cache/pip || true
+
     - name: Run build script
       run: |
-        # apt-get update && apt-get install -y libgl-dev
         git clone https://github.com/iMoonLab/yolov13.git --depth 1 yolov13_source
         echo current path = ${PWD}
         export PYTHONPATH=${PWD}/yolov13_source
-        pip install onnxsim
-        cd yolo
+        pip install onnx==1.14.0 onnx-simplifier==0.4.33
+        cd model_convert/yolo
         mkdir -pv onnx
+        cd onnx
+        # 使用您的模型文件，而不是下载预训练模型
         python ../export_det_v13_origin.py -w ../best.pt
         mv best.onnx yolov13_origin.onnx 
         python ../export_det_v13.pyc -w ../best.pt --sim
@@ -45,7 +52,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: onnx_artifacts
-        path: yolo/onnx/*.onnx
+        path: model_convert/yolo/onnx/*.onnx
 
   onnx2rknn:
     needs: [pt2onnx]
@@ -73,17 +80,17 @@ jobs:
     - name: Run build script
       run: |
         SRC_PATH=$(pwd)
-        cd yolo
+        cd model_convert/yolo
         mkdir -pv rknn
         cp -vr ${SRC_PATH}/onnx_artifacts/*.onnx ./rknn/
-        python convert.pyc rknn/yolo.onnx rk3588 i8 rknn/yolo.rknn
+        python convert.pyc rknn/best_sim.onnx rk3588 i8 rknn/yolo.rknn
 
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: rknn_artifacts
-        path: yolo/rknn/*.rknn
+        path: model_convert/yolo/rknn/*.rknn
 
   onnx2om:
     needs: [pt2onnx]
@@ -111,7 +118,7 @@ jobs:
         source /usr/local/Ascend/ascend-toolkit/set_env.sh
         export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib/:$LD_LIBRARY_PATH
         cd om
-        atc --model=yolo.onnx --framework=5 --output=yolo --soc_version=Ascend310B4
+        atc --model=best_sim.onnx --framework=5 --output=yolo --soc_version=Ascend310B4
 
 
     - name: Upload artifact
